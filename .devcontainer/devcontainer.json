@@ -1,0 +1,89 @@
+{
+    "name": "flutter_muse_ml",
+    "build": {
+        "dockerfile": "Dockerfile"
+        // "options": ["-t", "thomas/tts_th:latest"],
+    },
+    "mounts": [
+        {
+            "type": "volume",
+            "source": "flutter_muse_ml_uv_cache",
+            "target": "/home/vscode/.cache/uv"
+        },
+        {
+            "type": "volume",
+            "source": "flutter_muse_ml_flutter",
+            "target": "/usr/local/flutter"
+        },
+        {
+            "type": "volume",
+            "source": "flutter_muse_ml_android-sdk",
+            "target": "/opt/android-sdk"
+        },
+        {
+            "type": "volume",
+            "source": "flutter_muse_ml_rustup",
+            "target": "/home/vscode/.rustup"
+        },
+        {
+            "type": "volume",
+            "source": "flutter_muse_ml_cargo",
+            "target": "/home/vscode/.cargo"
+        },
+        {
+            "type": "volume",
+            "source": "shared_backups",
+            "target": "/opt/backups"
+        }
+
+    ],
+    // "postCreateCommand": "uv sync --extra dev && echo '✅ Python environment ready with uv!'",
+    "remoteUser": "vscode",
+    "containerUser": "vscode",
+    "updateRemoteUserUID": true,
+    // name the container "tts" so it's easy to identify
+    "runArgs": [
+        "--userns=keep-id:uid=1000,gid=1000",
+        "--name",
+        "flutter_muse_ml",
+
+        // pass usb into container (for adb, if you dont forward adb from the host with: 'adb -a nodaemon server start')
+        // "--privileged",
+        // "-v", "/dev/bus/usb:/dev/bus/usb",
+
+        // pass bluetooth into the container
+        "--net=host",
+        "-v", "/var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket",
+
+        // pass wayland into the container
+        "--device", "/dev/dri",
+        "-v", "${localEnv:XDG_RUNTIME_DIR}/${localEnv:WAYLAND_DISPLAY}:/tmp/wayland-0",
+        "-v", "${localEnv:XDG_RUNTIME_DIR}/bus:/tmp/user_bus",
+        "-e", "WAYLAND_DISPLAY=wayland-0",
+        "-e", "XDG_RUNTIME_DIR=/tmp",
+        "-e", "DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/user_bus",
+
+    ],
+    // use zsh as the default shell
+    "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh"
+    },
+    "containerEnv": {
+        "HOME": "/home/vscode",
+        "UV_CACHE_DIR": "/home/vscode/.cache/uv",
+        "DEBUGPY_PROCESS_SPAWN_TIMEOUT": "90",
+        "ANDROID_ADB_SERVER_ADDRESS": "host.docker.internal",
+        "VIRTUAL_ENV": "/workspaces/flutter_muse_ml/.venv",
+        "ANDROID_HOME":     "/opt/android-sdk",
+        "ANDROID_SDK_ROOT": "/opt/android-sdk",
+        "ANDROID_NDK_HOME": "${ANDROID_HOME}/ndk/28.2.13676358",
+        "JAVA_HOME": "/usr/lib/jvm/java-21-openjdk-amd64",
+        "PATH": "${PATH}:${ANDROID_HOME}/platform-tools:${ANDROID_HOME}/cmdline-tools/latest/bin",
+    },
+    "forwardPorts": [5678], // forward port for debugpy
+    "customizations": {
+        "zed": {
+            // "extensions": ["mcp-server-sequential-thinking", "mcp-server-context7"],
+        }
+    }
+}
