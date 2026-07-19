@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:muse_ml/src/connection_provider.dart';
@@ -8,6 +10,7 @@ import 'package:muse_ml/src/status_bar.dart';
 import 'package:muse_ml/src/views/bands.dart';
 import 'package:muse_ml/src/views/raw_eeg.dart';
 import 'package:muse_ml/src/views/terminal.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// The main app shell: status bar on top, a collapsible sidebar with the three
 /// views, and the connect window overlay.
@@ -110,10 +113,12 @@ class _SideBarItem extends StatelessWidget {
   }
 }
 
-/// Entry point. Loads settings, initializes the Rust library, then runs the app.
+/// Entry point. Loads settings, initializes the Rust library, requests BLE
+/// permissions, then runs the app.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await RustLib.init();
+  await _requestBlePermissions();
   final settings = await Settings.load();
   runApp(
     ProviderScope(
@@ -130,4 +135,32 @@ Future<void> main() async {
       ),
     ),
   );
+}
+
+/// Requests the Bluetooth LE permissions needed for scanning/connecting.
+///
+/// On Android 12+ this is `BLUETOOTH_SCAN` + `BLUETOOTH_CONNECT`. On Android
+/// 11 and below, BLE scanning additionally requires location permission, so we
+/// request that too. If a permission is permanently denied we open the app
+/// settings so the user can grant it manually.
+Future<void> _requestBlePermissions() async {
+  // permission_handler has no Linux/desktop implementation, so only request on
+  // Android (where BLE requires runtime permissions).
+  if (!Platform.isAndroid) return;
+
+  final permissions = [
+    Permission.bluetoothScan,
+    Permission.bluetoothConnect,
+    Permission.locationWhenInUse,
+  ];
+
+  // Request everything that isn't already granted.
+  final statuses = await permissions.request();
+
+  final permanentlyDenied = statuses.values.any(
+    (status) => status.isPermanentlyDenied,
+  );
+  if (permanentlyDenied) {
+    await openAppSettings();
+  }
 }
