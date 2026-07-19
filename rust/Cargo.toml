@@ -1,0 +1,20 @@
+[package]
+name = "rust_lib_muse_ml"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+flutter_rust_bridge = "=2.11.1"
+muse-rs = { git = "https://github.com/eugenehp/muse-rs.git", tag = "0.1.0", default-features = false }
+tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "macros", "time"] }
+anyhow = "1"
+log = "0.4"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "macros", "time", "net", "process"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
