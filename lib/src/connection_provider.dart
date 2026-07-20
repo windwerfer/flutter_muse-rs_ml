@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:muse_ml/src/app.dart';
 import 'package:muse_ml/src/rust/api/muse.dart';
@@ -21,6 +22,7 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
           scanning: false,
           devices: const [],
           batteryLevel: 0,
+          scanMessage: null,
           telemetry: const TelemetrySnapshot(
             batteryLevel: 0,
             fuelGaugeVoltage: 0,
@@ -54,25 +56,35 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
       // No known device -> show the connect window on launch.
       state = state.copyWith(connectWindowOpen: true);
     }
+    // TEMP-TEST: auto-scan on launch to exercise scan() path without a tap.
+    openConnectWindowAndScan();
   }
 
   Future<void> _tryAutoconnect(String lastId) async {
-    state = state.copyWith(connectWindowOpen: true, scanning: true);
+    state = state.copyWith(connectWindowOpen: true, scanning: true,
+        scanMessage: 'Requesting BLE permissions…');
     try {
       if (!await requestBlePermissions()) {
-        state = state.copyWith(scanning: false);
+        debugPrint('[muse] scan skipped: BLE permissions not granted');
+        state = state.copyWith(scanning: false,
+            scanMessage: 'BLE permissions not granted');
         return;
       }
+      debugPrint('[muse] starting scan (autoconnect)');
+      state = state.copyWith(scanMessage: 'Scanning…');
       final devices = await scan(timeoutSecs: BigInt.from(15));
+      debugPrint('[muse] scan returned ${devices.length} device(s)');
       final match = devices.where((d) => d.id == lastId).firstOrNull ??
           devices.where((d) => d.name == lastId).firstOrNull;
       if (match != null) {
         connectTo(match);
       } else {
-        state = state.copyWith(scanning: false);
+        state = state.copyWith(scanning: false,
+            scanMessage: 'Did not find last device (${devices.length} found)');
       }
-    } catch (e) {
-      state = state.copyWith(scanning: false);
+    } catch (e, st) {
+      debugPrint('[muse] scan error: $e\n$st');
+      state = state.copyWith(scanning: false, scanMessage: 'Scan error: $e');
     }
   }
 
@@ -117,7 +129,8 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
       final status = await connect(deviceId: device.id);
       await _settings.setLastDeviceId(device.id);
       state = state.copyWith(status: status, scanning: false);
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[muse] connect error: $e\n$st');
       state = state.copyWith(scanning: false, connectWindowOpen: true);
     }
   }
@@ -128,16 +141,26 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
   }
 
   Future<void> openConnectWindowAndScan() async {
-    state = state.copyWith(connectWindowOpen: true, scanning: true);
+    debugPrint('[muse] openConnectWindowAndScan ENTERED');
+    state = state.copyWith(connectWindowOpen: true, scanning: true,
+        scanMessage: 'Requesting BLE permissions…');
     try {
+      debugPrint('[muse] requesting BLE permissions...');
       if (!await requestBlePermissions()) {
-        state = state.copyWith(scanning: false);
+        debugPrint('[muse] scan skipped: BLE permissions not granted');
+        state = state.copyWith(scanning: false,
+            scanMessage: 'BLE permissions not granted');
         return;
       }
+      debugPrint('[muse] starting scan (manual rescan)');
+      state = state.copyWith(scanMessage: 'Scanning…');
       final devices = await scan(timeoutSecs: BigInt.from(15));
-      state = state.copyWith(devices: devices, scanning: false);
-    } catch (e) {
-      state = state.copyWith(scanning: false);
+      debugPrint('[muse] scan returned ${devices.length} device(s)');
+      state = state.copyWith(devices: devices, scanning: false,
+          scanMessage: 'Found ${devices.length} device(s)');
+    } catch (e, st) {
+      debugPrint('[muse] scan error: $e\n$st');
+      state = state.copyWith(scanning: false, scanMessage: 'Scan error: $e');
     }
   }
 
@@ -173,6 +196,7 @@ class AppUiState {
     required this.devices,
     required this.batteryLevel,
     required this.telemetry,
+    this.scanMessage,
   });
 
   final ConnectionStatus status;
@@ -183,6 +207,7 @@ class AppUiState {
   final List<DeviceInfo> devices;
   final double batteryLevel;
   final TelemetrySnapshot telemetry;
+  final String? scanMessage;
 
   AppUiState copyWith({
     ConnectionStatus? status,
@@ -193,6 +218,7 @@ class AppUiState {
     List<DeviceInfo>? devices,
     double? batteryLevel,
     TelemetrySnapshot? telemetry,
+    String? scanMessage,
   }) =>
       AppUiState(
         status: status ?? this.status,
@@ -203,6 +229,7 @@ class AppUiState {
         devices: devices ?? this.devices,
         batteryLevel: batteryLevel ?? this.batteryLevel,
         telemetry: telemetry ?? this.telemetry,
+        scanMessage: scanMessage ?? this.scanMessage,
       );
 }
 
