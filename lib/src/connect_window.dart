@@ -61,6 +61,15 @@ class ConnectWindow extends ConsumerWidget {
                   onTap: () => notifier.connectTo(d),
                 ),
               ),
+            if (state.scanMessage != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                state.scanMessage!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.secondary,
+                    ),
+              ),
+            ],
           ],
         ),
       ),
