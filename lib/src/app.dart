@@ -158,6 +158,8 @@ Future<bool> requestBlePermissions() async {
   if (!Platform.isAndroid) return true;
   debugPrint('[muse] requestBlePermissions: on Android');
 
+  debugPrint('[muse] requestBlePermissions: on Android');
+
   final permissions = [
     Permission.bluetoothScan,
     Permission.bluetoothConnect,
