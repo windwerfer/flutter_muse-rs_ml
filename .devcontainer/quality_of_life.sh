@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-
+sudo apt update
 sudo apt install -y fzf zoxide ripgrep fd-find zstd hx
 
 rm -rf ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
