@@ -11,6 +11,7 @@ import 'package:muse_ml/src/views/bands.dart';
 import 'package:muse_ml/src/views/raw_eeg.dart';
 import 'package:muse_ml/src/views/terminal.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 
 /// The main app shell: status bar on top, a collapsible sidebar with the three
 /// views, and the connect window overlay.
@@ -118,7 +119,7 @@ class _SideBarItem extends StatelessWidget {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await RustLib.init();
-  await _requestBlePermissions();
+  await requestBlePermissions();
   final settings = await Settings.load();
   runApp(
     ProviderScope(
@@ -139,28 +140,45 @@ Future<void> main() async {
 
 /// Requests the Bluetooth LE permissions needed for scanning/connecting.
 ///
-/// On Android 12+ this is `BLUETOOTH_SCAN` + `BLUETOOTH_CONNECT`. On Android
-/// 11 and below, BLE scanning additionally requires location permission, so we
-/// request that too. If a permission is permanently denied we open the app
-/// settings so the user can grant it manually.
-Future<void> _requestBlePermissions() async {
+/// On Android 12+ (API 31+) this is `BLUETOOTH_SCAN` + `BLUETOOTH_CONNECT`
+/// (the "Nearby devices" group). `BLUETOOTH_SCAN` is declared with
+/// `neverForLocation`, and btleplug reads device names from the advertisement
+/// `ScanRecord` rather than `BluetoothDevice.getName()`, so names are returned
+/// on API 31/32 without any location permission. On Android 11 and below, BLE
+/// scanning still requires `ACCESS_FINE_LOCATION`, so we request it there.
+/// If a permission is permanently denied we open the app settings so the user
+/// can grant it manually.
+///
+/// Returns true if every required permission is granted (or the platform does
+/// not require runtime BLE permissions), false otherwise.
+Future<bool> requestBlePermissions() async {
   // permission_handler has no Linux/desktop implementation, so only request on
   // Android (where BLE requires runtime permissions).
-  if (!Platform.isAndroid) return;
+  if (!Platform.isAndroid) return true;
 
   final permissions = [
     Permission.bluetoothScan,
     Permission.bluetoothConnect,
-    Permission.locationWhenInUse,
   ];
+
+  // Location is only needed for BLE scanning on Android 11 (API 30) and below.
+  // On API 31+ BLUETOOTH_SCAN is declared `neverForLocation` and the manifest
+  // scopes ACCESS_FINE_LOCATION to maxSdkVersion 30, so there is no location
+  // permission to request there.
+  final sdkInt = (await DeviceInfoPlugin().androidInfo).version.sdkInt;
+  if (sdkInt <= 30) {
+    permissions.add(Permission.locationWhenInUse);
+  }
 
   // Request everything that isn't already granted.
   final statuses = await permissions.request();
 
-  final permanentlyDenied = statuses.values.any(
-    (status) => status.isPermanentlyDenied,
-  );
+  final denied = statuses.entries.where((e) => !e.value.isGranted);
+  if (denied.isEmpty) return true;
+
+  final permanentlyDenied = denied.any((e) => e.value.isPermanentlyDenied);
   if (permanentlyDenied) {
     await openAppSettings();
   }
+  return false;
 }

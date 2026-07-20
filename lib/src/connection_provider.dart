@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:muse_ml/src/app.dart';
 import 'package:muse_ml/src/rust/api/muse.dart';
 import 'package:muse_ml/src/settings.dart';
 
@@ -55,9 +56,14 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
     }
   }
 
-  void _tryAutoconnect(String lastId) {
+  Future<void> _tryAutoconnect(String lastId) async {
     state = state.copyWith(connectWindowOpen: true, scanning: true);
-    scan(timeoutSecs: BigInt.from(15)).then((devices) {
+    try {
+      if (!await requestBlePermissions()) {
+        state = state.copyWith(scanning: false);
+        return;
+      }
+      final devices = await scan(timeoutSecs: BigInt.from(15));
       final match = devices.where((d) => d.id == lastId).firstOrNull ??
           devices.where((d) => d.name == lastId).firstOrNull;
       if (match != null) {
@@ -65,9 +71,9 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
       } else {
         state = state.copyWith(scanning: false);
       }
-    }).catchError((e) {
+    } catch (e) {
       state = state.copyWith(scanning: false);
-    });
+    }
   }
 
   void _onEvent(MuseEventDto event) {
@@ -124,6 +130,10 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
   Future<void> openConnectWindowAndScan() async {
     state = state.copyWith(connectWindowOpen: true, scanning: true);
     try {
+      if (!await requestBlePermissions()) {
+        state = state.copyWith(scanning: false);
+        return;
+      }
       final devices = await scan(timeoutSecs: BigInt.from(15));
       state = state.copyWith(devices: devices, scanning: false);
     } catch (e) {
