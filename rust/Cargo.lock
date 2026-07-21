@@ -210,6 +210,7 @@ dependencies = [
 [[package]]
 name = "btleplug"
 version = "0.11.8"
+source = "git+https://github.com/windwerfer/btleplug.git?tag=0.11.8-muse-1#3e5af57742e97e64596d8b2d3a1e60f687f12e82"
 dependencies = [
  "async-trait",
  "bitflags 2.13.1",
