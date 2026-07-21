@@ -1,0 +1,2 @@
+-keep class com.nonpolynomial.btleplug.android.impl.** { *; }
+-keep class io.github.gedgygedgy.rust.** { *; }

@@ -9,17 +9,20 @@ crate-type = ["cdylib", "staticlib"]
 [dependencies]
 flutter_rust_bridge = "=2.11.1"
 muse-rs = { git = "https://github.com/eugenehp/muse-rs.git", tag = "0.1.0", default-features = false }
-btleplug = { git = "https://github.com/eugenehp/btleplug.git", branch = "imrpoved_mac_version", version = "0.11.8" }
+btleplug = { git = "https://github.com/windwerfer/btleplug.git", tag = "0.12.0-muse-2", version = "0.11.8" }
 jni = "=0.19"
 tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "macros", "time"] }
 anyhow = "1"
 log = "0.4"
+
+# For local btleplug development, comment out the git dependency above,
+# uncomment the patch below, and ensure ../../btleplug/Cargo.toml has
+# version = "0.11.8":
+# [patch.'https://github.com/windwerfer/btleplug.git']
+# btleplug = { path = "../../btleplug" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "macros", "time", "net", "process"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
-
-[patch.'https://github.com/eugenehp/btleplug.git']
-btleplug = { path = "../btleplug" }

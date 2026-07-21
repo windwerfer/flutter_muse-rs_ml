@@ -141,7 +141,10 @@ pub async fn scan(timeout_secs: Option<u64>) -> anyhow::Result<Vec<DeviceInfo>> 
         ..Default::default()
     });
 
-    let devices = client.scan_all().await?;
+    let devices = client.scan_all().await.map_err(|e| {
+        log::error!("[muse] scan_all failed: {e:?}");
+        e
+    })?;
 
     let mut map = std::collections::HashMap::new();
     let infos: Vec<DeviceInfo> = devices
