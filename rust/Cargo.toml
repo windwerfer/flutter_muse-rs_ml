@@ -21,7 +21,5 @@ tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "macros", 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 
-# Use patched btleplug (sibling project) with JNI thread-attach fix.
-# Push btleplug/ to your GitHub as a fork and switch to git = "..." when ready.
 [patch.'https://github.com/eugenehp/btleplug.git']
-btleplug = { path = "../btleplug" }
+btleplug = { git = "https://github.com/windwerfer/btleplug.git", tag = "0.11.8-muse-1" }
