@@ -8,8 +8,10 @@ Muse EEG headset companion app — Flutter + Rust via `flutter_rust_bridge`.
 flutter run
 ```
 
-Scan for nearby Muse headsets by tapping **Rescan**. Requires Android
-12+ with Bluetooth LE.
+Scan for nearby Muse headsets by tapping **Rescan**.
+
+**Supported:** Android 10+ (API 29), 64-bit only (`arm64-v8a` / `x86_64`).
+Older API levels would theoretically work but are untested.
 
 ## Debugging
 
