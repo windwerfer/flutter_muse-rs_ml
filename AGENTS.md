@@ -8,8 +8,10 @@ Global orientation for any AI agent or contributor working in this repo.
   - Rust lib: `rust/` (crate `rust_lib_muse_ml`).
   - Generated bindings: `rust/src/frb_generated.rs` is **gitignored**; Dart generated files ARE tracked.
 - **muse-rs** (`github.com/eugenehp/muse-rs.git` tag `0.1.0`, `default-features = false`) — Muse BLE protocol + transport.
-- **btleplug** — forked to `github.com/windwerfer/btleplug` (`muse-jni-fix` branch, tag `0.11.8-muse-1`). Fork of `deviceplug/btleplug` 0.11.8, patched with `get_env()` → `attach_current_thread_permanently()` fallback for tokio JNI threads. Referenced via `[patch]` in `Cargo.toml`.
+- **btleplug** — forked at `github.com/windwerfer/btleplug` (tag `0.12.0-muse-2`), patched with `get_env()` → `attach_current_thread_permanently()` fallback for tokio JNI threads. **Source base is upstream 0.12.0 but `Cargo.toml` version is pinned to `0.11.8`** — required for semver matching (see `.ai/btleplug.md`). Referenced as a git dep; swap to local `../../btleplug` via `[patch]` for debugging.
 - **Android**: NDK 27/28, Gradle 8.14, `targetSdkVersion = 36`.
+- **Decision:** using btleplug (forked) for BLE transport — consistent with
+  `muse-rs`. `flutter_blue_plus` was the fallback if the JNI fix had failed.
 - **JNI glue**: Kotlin `MainActivity.museAndroidInit()` → Rust `extern "C"` → `btleplug::platform::init()`. btleplug Java sources under `android/app/src/main/java/com/nonpolynomial/btleplug/`. jni-utils Java at `io/github/gedgygedgy/rust/`.
 - **iOS/macOS**: not the current target; BLE transport uses btleplug's CoreBluetooth path.
 
@@ -20,6 +22,16 @@ Global orientation for any AI agent or contributor working in this repo.
 - Do not run `git` commit/push/PR unless explicitly requested.
 - When editing Rust under `rust/src/api/`, run `flutter_rust_bridge` codegen if the FFI surface changes, then `cargo check --target aarch64-linux-android` is NOT reliable in this sandbox (see Testing Guide) — rely on `flutter run` for the real compile.
 - `flutter analyze lib/src` must stay clean after edits.
+
+## Docs (`.ai/`)
+| File | Contents |
+|------|----------|
+| `btleplug.md` | btleplug fork changes — what, why, pitfalls (version, Java alignment) |
+| `bugreport.md` | Structured bug report for upstream btleplug (3 sections + suggestions) |
+| `architecture.md` | Current and target architecture, module map |
+| `lessons-learned.md` | Full history of JNI attempts, what worked/failed |
+| `testing-guide.md` | Build/test loop for the device |
+| `active-task.md` | Current development focus |
 
 ## Project layout
 ```
@@ -33,13 +45,15 @@ rust/src/connection.rs  # in-Rust state (active connection, device cache, sink)
 android/app/src/main/java/
   com/nonpolynomial/btleplug/android/impl/  # btleplug Java classes
   io/github/gedgygedgy/rust/                # jni-utils Java sources
+.ai/                     # project docs
 muse-rs (dep, GitHub)    # transport (btleplug) + protocol
-btleplug (dep, GitHub)   # windwerfer/btleplug via [patch] in Cargo.toml
+btleplug (local, ../../btleplug)  # patched fork via [patch] in Cargo.toml
 ```
 
 ## Where things live (for navigation)
 - BLE scan/connect entry: `rust/src/api/muse.rs` (`scan`, `connect`, `subscribe_events`).
-- JNI thread-attach patch: `windwerfer/btleplug` on GitHub, `src/droidplug/jni/mod.rs` `get_env()`.
+- JNI thread-attach patch: `../../btleplug/src/droidplug/jni/mod.rs` `get_env()`,
+  plus callers in `adapter.rs` and `peripheral.rs`.
 - btleplug Java init: `android/app/src/main/java/com/nonpolynomial/btleplug/android/impl/`.
 - Kotlin init entry: `android/app/src/main/kotlin/com/example/muse_ml/MainActivity.kt`.
 - Protocol decoders (pure, no BLE): inside muse-rs `parse.rs` / `protocol.rs` / `types.rs`.
@@ -47,5 +61,8 @@ btleplug (dep, GitHub)   # windwerfer/btleplug via [patch] in Cargo.toml
 - Manifest BLE perms: `android/app/src/main/AndroidManifest.xml` (`BLUETOOTH_SCAN` w/ `neverForLocation`, `BLUETOOTH_CONNECT`, `ACCESS_FINE_LOCATION` capped `maxSdkVersion=30`).
 
 ## Known hot spots
-- **Android BLE init**: btleplug requires `btleplug::platform::init(&JNIEnv)` from a JNI context BEFORE any scan/connect, or it panics with `"Droidplug has not been initialized"`. This is the central gotcha of this project (see `.ai/lessons-learned.md`).
+- **Cargo `[patch]` version trap**: If the patched crate's `version` is semver-incompatible with the dependency constraint, Cargo silently ignores the patch. Our fork must stay at `version = "0.11.8"` even though the source is based on 0.12.0.
+- **Android BLE init**: btleplug requires `btleplug::platform::init(&JNIEnv)` from a JNI context BEFORE any scan/connect, or it panics with `"Droidplug has not been initialized"`.
+- **JNI `ThreadDetached`**: BLE ops run on tokio worker threads which aren't attached to the JVM. Our `get_env()` patch auto-attaches them.
+- **Java/Rust API alignment**: The Rust code expects Java method signatures from btleplug 0.12.0. If upgrading either side, check `jni/objects.rs` vs the Java source files.
 - **Auto-scan only on saved device**: on fresh launch with no `lastDeviceId`, `_init()` opens the connect window but does NOT scan. Scan only fires on Rescan button or autoconnect to a known device.

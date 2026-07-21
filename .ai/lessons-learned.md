@@ -72,13 +72,15 @@ failure was entirely on the Rust/btleplug side, not Dart.
   `result = granted, granted` in logcat.
 
 ## Gotchas
+- **Cargo `[patch]` silently skips on semver mismatch** — if the patched
+  crate's `version` is `0.12.0` but the project requires `^0.11.8`, the patch
+  is ignored with no warning. Always verify with `cargo tree`.
 - **Never `pkill -f adb`** — it kills the adb server and wedges the shell.
   Kill only `flutter`/`dart`/`gradle` processes.
 - **`flutter run` holds the logcat stream**, so `adb logcat -d` hangs (timeout)
   while the run is alive. Kill the flutter process first, then dump logcat.
-- **`cargo check --target aarch64-linux-android` fails in this sandbox** with a
-  permission-denied on the NDK clang. The real compile path is `flutter run`
-  (cargokit + cargo-ndk), which works. Don't trust local `cargo check` here.
+- **NDK clang works from the sandbox** — `cargo check --target aarch64-linux-android`
+  is now reliable (set `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER`).
 - **muse-rs protocol core is btleplug-free:** `parse.rs`, `protocol.rs`,
   `types.rs`, `lib.rs` have zero btleplug imports. Only `muse_client.rs` and
   `bin/` use btleplug — safe to delete in the fork.
@@ -86,3 +88,50 @@ failure was entirely on the Rust/btleplug side, not Dart.
   `log` feature is on, so plain `log::` calls print to logcat. The
   `enable_frb_rust_to_dart_logging!()` macro the user suggested does NOT exist
   in 2.11.1 (added later); not needed here.
+
+## Outcome: btleplug fixed, no migration needed
+
+**Decision:** The JNI fix works. We keep btleplug as the BLE transport for
+consistency with `muse-rs`. The `flutter_blue_plus` migration (documented in
+`architecture.md`) was the fallback plan and remains a good second choice.
+
+## Session 2026-07-21 — btleplug JNI fix succeeds
+
+After the pivot to `flutter_blue_plus` was decided, we came back to make
+btleplug work. The `"JNI call failed"` error turned out to have a **second
+root cause** masked by the first:
+
+### The version trap that wasted hours
+The local btleplug fork had `version = "0.12.0"` but the project depended on
+`^0.11.8`. Cargo's `[patch]` silently ignored the patch because of the semver
+mismatch — the unpatched upstream 0.11.8 was compiled instead. Switching to
+`version = "0.11.8"` made the patch apply.
+
+### The real fix
+The upstream `get_env()` calls `global_jvm().get_env()` directly, which
+returns `JNI_EDETACHED` on tokio worker threads. Our `get_env()` wrapper
+falls back to `attach_current_thread_permanently()`, making every JNI call
+work regardless of thread attachment state.
+
+### Java API alignment
+The Rust source was based on 0.12.0 but the bundled Java files were from
+0.11.8. `JPeripheral::from_env_impl()` eagerly resolves all method IDs and
+panics if any signature doesn't match. We added 5 missing Java methods,
+fixed the `writeDescriptor` signature, added callback overrides, and created
+`NoBluetoothAdapterException.java`.
+
+### Result
+Scan now works end-to-end. The `get_env` logs confirm both tokio worker
+threads are detected detached and permanently attached on first JNI call.
+No crashes or errors during scan.
+
+### Relevant files
+- `../../btleplug/src/droidplug/jni/mod.rs` — core `get_env()` patch
+- `../../btleplug/src/droidplug/adapter.rs` — callers updated + logging
+- `../../btleplug/src/droidplug/peripheral.rs` — callers updated
+- `../../btleplug/src/droidplug/jni_utils/classcache.rs` — `.unwrap()` → `?`
+- `../../btleplug/Cargo.toml` — version 0.12.0 → 0.11.8
+- `android/app/src/main/java/.../Peripheral.java` — methods + callbacks added
+- `android/app/src/main/java/.../NoBluetoothAdapterException.java` — new file
+- `.ai/btleplug.md` — full fork documentation
+- `.ai/bugreport.md` — structured report for upstream

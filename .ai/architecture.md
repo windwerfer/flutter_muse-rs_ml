@@ -18,34 +18,36 @@ flutter_rust_bridge 2.11.1  ── FFI ──►  Rust crate rust_lib_muse_ml (r
 - Permissions: `requestBlePermissions()` in `app.dart` (permission_handler +
   device_info_plus, SDK-gated).
 
-## Target architecture (decided 2026-07-20)
-Replace the btleplug transport with `flutter_blue_plus` (Dart) and keep only
-muse-rs's **protocol core** in Rust, fed raw bytes over the FFI bridge.
+## Decision: keep btleplug (2026-07-21)
+
+The btleplug JNI thread-attach fix succeeded — scan works end-to-end without
+crashes. We are **keeping btleplug** as the BLE transport for consistency with
+`muse-rs` (which uses btleplug natively). No migration to `flutter_blue_plus`.
+
+### Fallback option (if btleplug hadn't worked)
+If the JNI fix had failed, the plan was to replace the btleplug transport with
+`flutter_blue_plus` (Dart) and keep only muse-rs's **protocol core** in Rust,
+fed raw bytes over the FFI bridge:
 
 ```
 Flutter UI (lib/src)
    │
-   ├─ flutter_blue_plus (Dart)  ◄── does scan / connect / discover / subscribe
+   ├─ flutter_blue_plus (Dart)  ◄── scan / connect / discover / subscribe
    │        │  raw List<int> per characteristic notification
    │        ▼  (frb call: handle_notification(uuid, bytes))
    │
    └─ flutter_rust_bridge ──►  stripped muse-rs core (Rust)
-                                 parse.rs / protocol.rs / types.rs
-                                 handle_notification(uuid, bytes) -> Vec<MuseEvent>
-                                 encode_command(cmd) -> Vec<u8>
-                                            │
-                                            ▼
-                                 MuseEvent stream → UI (unchanged)
+                                  parse.rs / protocol.rs / types.rs
+                                  handle_notification(uuid, bytes) -> Vec<MuseEvent>
+                                  encode_command(cmd) -> Vec<u8>
+                                             │
+                                             ▼
+                                  MuseEvent stream → UI (unchanged)
 ```
 
-### Why this shape
-- `flutter_blue_plus` is mature and handles Android BLE init natively — no
-  Kotlin glue, no bundled btleplug Java, no JVM-attach hacks, no patched fork.
-- muse-rs's protocol decoders are **pure** (`fn(&[u8]) -> …`), btleplug-free,
-  and already implement the Muse framing (EEG 12/24-bit unpacking, PPG, IMU,
-  telemetry, control accumulation, Athena payloads). We keep exactly that.
-- The only custom Rust is a thin UUID→decoder router mirroring what
-  `muse_client.rs` did internally.
+`flutter_blue_plus` handles Android BLE init natively and would have avoided
+the Kotlin glue, bundled Java classes, JVM-attach patch, and patched fork.
+It remains a good second choice if btleplug ever becomes unmaintainable.
 
 ## muse-rs module map (for the fork)
 | File | Role | Keep in fork? |
@@ -69,3 +71,17 @@ Flutter UI (lib/src)
 - `targetSdkVersion = 36`, NDK 27/28, Gradle 8.14.
 - `flutter_rust_bridge` generated `rust/src/frb_generated.rs` is gitignored;
   Dart generated files are tracked.
+
+## JNI thread-attach workaround (btleplug fork)
+
+**Fixed 2026-07-21.** The btleplug fork at `github.com/windwerfer/btleplug`
+(tag `0.12.0-muse-2`) includes a `get_env()` wrapper that auto-attaches
+tokio worker threads to the JVM. Without this, every BLE JNI call from a
+worker thread fails with `"JNI call failed"`.
+
+Key insight: the `jni` crate's `JavaVM::get_env()` returns
+`Err(JniCall(ThreadDetached))` for unattached threads and does not
+auto-attach. The fix is a single function with a fallback to
+`attach_current_thread_permanently()`.
+
+See `.ai/btleplug.md` for the full patch documentation.

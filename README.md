@@ -1,25 +1,46 @@
 # muse_ml
 
-A new Flutter project.
+Muse EEG headset companion app — Flutter + Rust via `flutter_rust_bridge`.
 
-## Getting Started
+## Quick start
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
-
-
-
-
-# android ble debug
 ```bash
-adb logcat | grep -i "scan_all\|btleplug\|muse"
+flutter run
 ```
+
+Scan for nearby Muse headsets by tapping **Rescan**. Requires Android
+12+ with Bluetooth LE.
+
+## Debugging
+
+```bash
+# Rust + BLE logs
+adb logcat -s btleplug rust_lib_muse_ml RustError
+
+# Everything muse-related
+adb logcat | grep -iE "scan_all|btleplug|muse"
+```
+
+## Architecture
+
+```
+Flutter UI (lib/src/) ←─ FFI ──→ Rust (rust/src/api/muse.rs)
+                                    ↕ muse-rs 0.1.0
+                                    ↕ btleplug 0.11.8 (patched)
+                                    ↕ Android BLE (JNI)
+```
+
+BLE transport: btleplug fork at `github.com/windwerfer/btleplug` (tag
+`0.12.0-muse-2`). JNI thread-attach patch for tokio worker threads; see
+`.ai/btleplug.md` for details.
+
+## Project docs (`.ai/`)
+
+| File | Contents |
+|------|----------|
+| `btleplug.md` | btleplug fork changes and pitfalls |
+| `bugreport.md` | Bug report for upstream btleplug |
+| `architecture.md` | Current and target architecture |
+| `lessons-learned.md` | Full debug history |
+| `testing-guide.md` | Build/test loop |
+| `active-task.md` | Current development focus |
