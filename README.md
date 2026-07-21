@@ -1,8 +1,16 @@
 # muse_ml
 
-Muse EEG headset companion app — Flutter + Rust via `flutter_rust_bridge`.
+Muse EEG headset companion app — Flutter + Rust via `flutter_rust_bridge`. Uses the [Rust Muse package eugenehp/muse-rs](https://github.com/eugenehp/muse-rs)
 
-## Quick start
+## work in progess
+so far functional
+- linux + android build
+- scan + connect to Muse S
+
+## Missing
+any kind of output, its pure bare bone so far
+
+## Quick start 
 
 ```bash
 flutter run
@@ -32,7 +40,7 @@ Flutter UI (lib/src/) ←─ FFI ──→ Rust (rust/src/api/muse.rs)
                                     ↕ Android BLE (JNI)
 ```
 
-BLE transport: btleplug fork at `github.com/windwerfer/btleplug` (tag
+BLE transport: [my btleplug fork](https://github.com/windwerfer/btleplug]  from the original [deviceplug/btleplug](https://github.com/deviceplug/btleplug) (tag
 `0.12.0-muse-2`). JNI thread-attach patch for tokio worker threads; see
 `.ai/btleplug.md` for details.
 
