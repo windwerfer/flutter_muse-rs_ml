@@ -8,7 +8,13 @@ Global orientation for any AI agent or contributor working in this repo.
   - Rust lib: `rust/` (crate `rust_lib_muse_ml`).
   - Generated bindings: `rust/src/frb_generated.rs` is **gitignored**; Dart generated files ARE tracked.
 - **muse-rs** (`github.com/eugenehp/muse-rs.git` tag `0.1.0`, `default-features = false`) — Muse BLE protocol + transport.
-- **btleplug** — forked at `github.com/windwerfer/btleplug` (tag `0.12.0-muse-2`), patched with `get_env()` → `attach_current_thread_permanently()` fallback for tokio JNI threads. **Source base is upstream 0.12.0 but `Cargo.toml` version is pinned to `0.11.8`** — required for semver matching (see `.ai/btleplug.md`). Referenced as a git dep; swap to local `../../btleplug` via `[patch]` for debugging.
+- **btleplug** — forked at `github.com/windwerfer/btleplug` (tag `0.12.0-muse-2`), patched with `get_env()` → `attach_current_thread_permanently()` fallback for tokio JNI threads. **Source base is upstream 0.12.0 but `Cargo.toml` version is pinned to `0.11.8`** — required for semver matching (see `.ai/btleplug.md`).
+  - Referenced via `[patch]` on `eugenehp/btleplug.git` so that BOTH
+    `rust_lib_muse_ml` and `muse-rs` use the same patched copy (single
+    `GLOBAL_JVM` static). Swap `[patch]` to local path for debugging.
+- **`jni = "=0.19"`** — pinned to match btleplug's own `jni` dependency.
+  If either side upgrades, both must be upgraded together or you get
+  link-time symbol conflicts.
 - **Android**: NDK 27/28, Gradle 8.14, `targetSdkVersion = 36`.
 - **Decision:** using btleplug (forked) for BLE transport — consistent with
   `muse-rs`. `flutter_blue_plus` was the fallback if the JNI fix had failed.
