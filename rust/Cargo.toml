@@ -22,4 +22,4 @@ tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "macros", 
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 
 [patch.'https://github.com/eugenehp/btleplug.git']
-btleplug = { git = "https://github.com/windwerfer/btleplug.git", tag = "0.12.0-muse-1" }
+btleplug = { path = "../btleplug" }
