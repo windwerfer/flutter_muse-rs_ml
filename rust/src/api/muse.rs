@@ -111,6 +111,26 @@ pub fn init_app() {
     flutter_rust_bridge::setup_default_user_utils();
 }
 
+/// Called from Kotlin `MainActivity.onCreate` with the JNI environment so that
+/// btleplug's global Android adapter can be registered. On Android, btleplug
+/// requires `btleplug::platform::init(&env)` to be called from a JNI context
+/// before any BLE scan/connect; otherwise it panics with
+/// "Droidplug has not been initialized".
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn Java_com_example_muse_1ml_MainActivity_museAndroidInit(
+    env: *mut jni::sys::JNIEnv,
+) {
+    let env = unsafe { jni::JNIEnv::from_raw(env) };
+    if let Ok(env) = env {
+        if let Err(e) = btleplug::platform::init(&env) {
+            log::error!("[muse] btleplug init failed: {e:?}");
+        } else {
+            log::info!("[muse] btleplug initialized");
+        }
+    }
+}
+
 /// Scan for nearby Muse devices for `timeout_secs` seconds and return what was
 /// found. Results are cached on the Rust side so `connect` can resolve the id
 /// back to a live peripheral.

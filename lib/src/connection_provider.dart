@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:muse_ml/src/app.dart';
 import 'package:muse_ml/src/rust/api/muse.dart';
@@ -56,6 +55,7 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
       // No known device -> show the connect window on launch.
       state = state.copyWith(connectWindowOpen: true);
     }
+    openConnectWindowAndScan();
   }
 
   Future<void> _tryAutoconnect(String lastId) async {
@@ -63,15 +63,12 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
         scanMessage: 'Requesting BLE permissions…');
     try {
       if (!await requestBlePermissions()) {
-        debugPrint('[muse] scan skipped: BLE permissions not granted');
         state = state.copyWith(scanning: false,
             scanMessage: 'BLE permissions not granted');
         return;
       }
-      debugPrint('[muse] starting scan (autoconnect)');
       state = state.copyWith(scanMessage: 'Scanning…');
       final devices = await scan(timeoutSecs: BigInt.from(15));
-      debugPrint('[muse] scan returned ${devices.length} device(s)');
       final match = devices.where((d) => d.id == lastId).firstOrNull ??
           devices.where((d) => d.name == lastId).firstOrNull;
       if (match != null) {
@@ -81,7 +78,6 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
             scanMessage: 'Did not find last device (${devices.length} found)');
       }
     } catch (e) {
-      debugPrint('[muse] scan error: $e');
       state = state.copyWith(scanning: false, scanMessage: 'Scan error: $e');
     }
   }
@@ -138,25 +134,19 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
   }
 
   Future<void> openConnectWindowAndScan() async {
-    debugPrint('[muse] openConnectWindowAndScan ENTERED');
     state = state.copyWith(connectWindowOpen: true, scanning: true,
         scanMessage: 'Requesting BLE permissions…');
     try {
-      debugPrint('[muse] requesting BLE permissions...');
       if (!await requestBlePermissions()) {
-        debugPrint('[muse] scan skipped: BLE permissions not granted');
         state = state.copyWith(scanning: false,
             scanMessage: 'BLE permissions not granted');
         return;
       }
-      debugPrint('[muse] starting scan (manual rescan)');
       state = state.copyWith(scanMessage: 'Scanning…');
       final devices = await scan(timeoutSecs: BigInt.from(15));
-      debugPrint('[muse] scan returned ${devices.length} device(s)');
       state = state.copyWith(devices: devices, scanning: false,
           scanMessage: 'Found ${devices.length} device(s)');
     } catch (e) {
-      debugPrint('[muse] scan error: $e');
       state = state.copyWith(scanning: false, scanMessage: 'Scan error: $e');
     }
   }

@@ -118,7 +118,6 @@ class _SideBarItem extends StatelessWidget {
 /// permissions, then runs the app.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  debugPrint('[muse] main entered');
   await RustLib.init();
   await requestBlePermissions();
   final settings = await Settings.load();
@@ -157,8 +156,6 @@ Future<bool> requestBlePermissions() async {
   // Android (where BLE requires runtime permissions).
   if (!Platform.isAndroid) return true;
 
-  debugPrint('[muse] requestBlePermissions: on Android');
-
   final permissions = [
     Permission.bluetoothScan,
     Permission.bluetoothConnect,
@@ -173,11 +170,7 @@ Future<bool> requestBlePermissions() async {
     permissions.add(Permission.locationWhenInUse);
   }
 
-  debugPrint('[muse] requestBlePermissions: requesting ${permissions.length} permission(s)');
-
-  // Request everything that isn't already granted.
   final statuses = await permissions.request();
-  debugPrint('[muse] requestBlePermissions: result = ${statuses.values.map((s) => s.name).join(', ')}');
 
   final denied = statuses.entries.where((e) => !e.value.isGranted);
   if (denied.isEmpty) return true;
