@@ -1,8 +1,0 @@
-.idea/**/*.xml
-.idea/
-/target/
-**/*.rs.bk
-Cargo.lock
-**/.vscode*
-/workspace.xml
-**/*.code-workspace

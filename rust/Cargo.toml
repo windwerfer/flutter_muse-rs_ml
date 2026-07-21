@@ -21,7 +21,7 @@ tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "macros", 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 
-# Use our local vendored copy of btleplug so we can patch JNI thread-attach
-# behavior (worker threads must be attached to the JVM before JNI calls).
+# Use patched btleplug (sibling project) with JNI thread-attach fix.
+# Push btleplug/ to your GitHub as a fork and switch to git = "..." when ready.
 [patch.'https://github.com/eugenehp/btleplug.git']
-btleplug = { path = "vendor/btleplug" }
+btleplug = { path = "../btleplug" }
