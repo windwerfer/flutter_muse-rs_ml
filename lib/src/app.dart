@@ -59,7 +59,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
 
     return Scaffold(
-      body: Column(
+      body: SafeArea(
+        child: Column(
         children: [
           const StatusBar(),
           Expanded(
@@ -114,6 +115,7 @@ class _AppShellState extends ConsumerState<AppShell> {
             ),
           ),
         ],
+      ),
       ),
     );
   }
