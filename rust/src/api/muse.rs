@@ -252,11 +252,11 @@ pub async fn connect(device_id: String) -> anyhow::Result<ConnectionStatus> {
 
 /// Disconnect from the active device, if any.
 ///
-/// Takes the active connection but does NOT drop `guard.events`, so the event
-/// receiver stays alive.  The disconnect watcher inside muse-rs will fire
-/// `MuseEvent::Disconnected` through the channel, the event forwarder will
-/// deliver it to Dart, and the forwarder loop will clean up `guard.events`
-/// (and set `forwarder_running = false`) when the channel ends naturally.
+/// Takes the active connection and immediately clears `guard.events` so the
+/// event forwarder stops waiting.  Then sends the BLE disconnect command and
+/// fires `Disconnected` through the Dart sink directly — the UI updates
+/// straight away instead of waiting for the disconnect-watcher event (which
+/// can be delayed on some BLE stacks).
 pub async fn disconnect() -> anyhow::Result<()> {
     let conn = {
         let mut guard = state().inner.lock().unwrap();
@@ -264,6 +264,17 @@ pub async fn disconnect() -> anyhow::Result<()> {
     };
     if let Some(conn) = conn {
         let _ = conn.handle.disconnect().await;
+    }
+    // Immediately report disconnected to the UI.  We do NOT rely on the
+    // disconnect watcher inside muse-rs because its event travels through
+    // the channel → forwarder → sink, and that path can be delayed or lost
+    // if the forwarder's rx channel closes before the event is consumed.
+    {
+        let mut guard = state().inner.lock().unwrap();
+        guard.events = None;
+        if let Some(sink) = &guard.sink {
+            let _ = sink.add(MuseEventDto::Disconnected);
+        }
     }
     Ok(())
 }
