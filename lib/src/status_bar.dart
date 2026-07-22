@@ -33,24 +33,52 @@ class StatusBar extends ConsumerWidget {
             child: GestureDetector(
               onTap: notifier.toggleConnectWindow,
               child: Center(
-                child: connected
+                child: state.disconnecting
                     ? Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.bluetooth_connected, size: 18),
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
                           const SizedBox(width: 8),
-                          Text(state.status.name),
-                          const SizedBox(width: 16),
-                          const Icon(Icons.battery_full, size: 18),
-                          const SizedBox(width: 4),
-                          Text('${state.batteryLevel.toInt()}%'),
-                          const SizedBox(width: 16),
-                          const Icon(Icons.signal_cellular_alt, size: 18),
-                          const SizedBox(width: 4),
-                          Text(state.status.firmware),
+                          const Text('Disconnecting…'),
                         ],
                       )
-                    : const Text('Not connected — tap to connect'),
+                    : connected
+                        ? Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.bluetooth_connected, size: 18),
+                              const SizedBox(width: 8),
+                              Text(state.status.name),
+                              const SizedBox(width: 16),
+                              const Icon(Icons.battery_full, size: 18),
+                              const SizedBox(width: 4),
+                              Text('${state.batteryLevel.toInt()}%'),
+                              const SizedBox(width: 16),
+                              const Icon(Icons.signal_cellular_alt, size: 18),
+                              const SizedBox(width: 4),
+                              Text(state.status.firmware),
+                            ],
+                          )
+                        : state.connectingTo != null
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text('Connecting to ${state.connectingTo}…'),
+                                ],
+                              )
+                            : const Text('Not connected — tap to connect'),
               ),
             ),
           ),

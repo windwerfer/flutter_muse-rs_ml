@@ -1,9 +1,13 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:muse_ml/src/app.dart';
 import 'package:muse_ml/src/rust/api/muse.dart';
 import 'package:muse_ml/src/settings.dart';
+
+/// Duration of each scan chunk when scanning continuously.
+const _scanChunkSecs = 3;
 
 /// Holds all connection + UI state for the app.
 class AppStateNotifier extends StateNotifier<AppUiState> {
@@ -33,51 +37,121 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
 
   final Settings _settings;
   StreamSubscription<MuseEventDto>? _eventSub;
-  Timer? _autoconnectTimer;
+  bool _scanEnabled = false;
 
   Future<void> _init() async {
-    // Start the event stream once.
     final stream = subscribeEvents();
     _eventSub = stream.listen(_onEvent);
 
-    // Restore previous connection state from Rust (in case it persisted).
     final status = await getStatus();
     if (status.connected) {
       state = state.copyWith(status: status);
+      return;
     }
 
-    // Auto-connect to the last device if we know one.
     final lastId = _settings.lastDeviceId;
     if (lastId != null && lastId.isNotEmpty) {
-      // Kick off a scan; if the last device shows up, connect to it.
-      _tryAutoconnect(lastId);
-    } else {
-      // No known device -> show the connect window on launch.
-      state = state.copyWith(connectWindowOpen: true);
+      final found = await _tryAutoconnect(lastId);
+      if (found) return;
     }
-    openConnectWindowAndScan();
+
+    _startContinuousScan();
   }
 
-  Future<void> _tryAutoconnect(String lastId) async {
-    state = state.copyWith(connectWindowOpen: true, scanning: true,
-        scanMessage: 'Requesting BLE permissions…');
+  /// Scan in short chunks looking for [lastId].  Returns `true` and connects
+  /// if found, `false` otherwise.
+  Future<bool> _tryAutoconnect(String lastId) async {
+    debugPrint('[muse] autoconnect: looking for $lastId');
+    state = state.copyWith(
+      connectWindowOpen: true,
+      scanning: true,
+      scanMessage: 'Looking for last device…',
+    );
     try {
       if (!await requestBlePermissions()) {
-        state = state.copyWith(scanning: false,
-            scanMessage: 'BLE permissions not granted');
+        debugPrint('[muse] autoconnect: BLE permissions not granted');
+        state = state.copyWith(
+          scanning: false,
+          scanMessage: 'BLE permissions not granted',
+        );
+        return false;
+      }
+      for (var i = 0; i < 5; i++) {
+        final devices = await scan(timeoutSecs: BigInt.from(_scanChunkSecs));
+        final match = devices.where((d) => d.id == lastId).firstOrNull ??
+            devices.where((d) => d.name == lastId).firstOrNull;
+        if (match != null) {
+          debugPrint('[muse] autoconnect: found ${match.name}, connecting');
+          await connectTo(match);
+          return true;
+        }
+        state = state.copyWith(
+          scanMessage: 'Searching… (${(i + 1) * _scanChunkSecs}s)',
+        );
+      }
+      debugPrint('[muse] autoconnect: last device not found after 5 chunks');
+      state = state.copyWith(
+        scanning: false,
+        scanMessage: 'Last device not found',
+      );
+    } catch (e) {
+      debugPrint('[muse] autoconnect error: $e');
+      state = state.copyWith(scanning: false, scanMessage: 'Scan error: $e');
+    }
+    return false;
+  }
+
+  /// Start a continuous scan loop that runs until a device is connected or
+  /// the connect window is closed.  Each chunk is a short BLE scan whose
+  /// results are merged into the UI list as they arrive.
+  Future<void> _startContinuousScan() async {
+    _scanEnabled = true;
+    debugPrint('[muse] continuous scan starting');
+    state = state.copyWith(
+      connectWindowOpen: true,
+      scanning: true,
+      scanMessage: 'Scanning…',
+    );
+
+    try {
+      if (!await requestBlePermissions()) {
+        debugPrint('[muse] continuous scan: BLE permissions not granted');
+        state = state.copyWith(
+          scanning: false,
+          scanMessage: 'BLE permissions not granted',
+        );
         return;
       }
-      state = state.copyWith(scanMessage: 'Scanning…');
-      final devices = await scan(timeoutSecs: BigInt.from(15));
-      final match = devices.where((d) => d.id == lastId).firstOrNull ??
-          devices.where((d) => d.name == lastId).firstOrNull;
-      if (match != null) {
-        connectTo(match);
+
+      var allDevices = <DeviceInfo>[];
+
+      while (_scanEnabled && !state.status.connected) {
+        final devices = await scan(timeoutSecs: BigInt.from(_scanChunkSecs));
+        if (!_scanEnabled || state.status.connected) break;
+
+        for (final d in devices) {
+          if (!allDevices.any((x) => x.id == d.id)) {
+            allDevices = [...allDevices, d];
+          }
+        }
+        debugPrint(
+          '[muse] scan chunk: ${devices.length} device(s) from rust, '
+          '${allDevices.length} unique total',
+        );
+        state = state.copyWith(
+          devices: allDevices,
+          scanMessage: '${allDevices.length} device(s) found',
+        );
+      }
+
+      if (!state.status.connected) {
+        debugPrint('[muse] continuous scan stopped (no connection)');
+        state = state.copyWith(scanning: false);
       } else {
-        state = state.copyWith(scanning: false,
-            scanMessage: 'Did not find last device (${devices.length} found)');
+        debugPrint('[muse] continuous scan stopped (connected)');
       }
     } catch (e) {
+      debugPrint('[muse] continuous scan error: $e');
       state = state.copyWith(scanning: false, scanMessage: 'Scan error: $e');
     }
   }
@@ -85,12 +159,16 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
   void _onEvent(MuseEventDto event) {
     switch (event) {
       case MuseEventDto_Connected():
+        debugPrint('[muse] event: connected ${event.field0}');
+        _scanEnabled = false;
         state = state.copyWith(
           status: state.status.copyWith(connected: true, name: event.field0),
           connectWindowOpen: false,
           scanning: false,
+          connectingTo: null,
         );
       case MuseEventDto_Disconnected():
+        debugPrint('[muse] event: disconnected');
         state = state.copyWith(
           status: const ConnectionStatus(
             connected: false,
@@ -105,8 +183,11 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
             temperature: 0,
           ),
           connectWindowOpen: true,
+          connectingTo: null,
+          scanning: false,
+          scanMessage: null,
         );
-        _settings.setLastDeviceId('');
+        _startContinuousScan();
       case MuseEventDto_Telemetry():
         state = state.copyWith(
           telemetry: event.field0,
@@ -118,37 +199,53 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
   }
 
   Future<void> connectTo(DeviceInfo device) async {
-    state = state.copyWith(connectWindowOpen: false, scanning: true);
+    if (state.connectingTo != null) return;
+    _scanEnabled = false;
+    debugPrint('[muse] connecting to ${device.name} (${device.id})');
+    state = state.copyWith(
+      connectWindowOpen: false,
+      scanning: false,
+      connectingTo: device.name,
+      scanMessage: null,
+    );
     try {
       final status = await connect(deviceId: device.id);
+      debugPrint('[muse] connect returned: connected=${status.connected}');
       await _settings.setLastDeviceId(device.id);
-      state = state.copyWith(status: status, scanning: false);
+      state = state.copyWith(
+        status: status,
+        connectingTo: null,
+      );
     } catch (e) {
-      state = state.copyWith(scanning: false, connectWindowOpen: true);
+      debugPrint('[muse] connect failed: $e');
+      state = state.copyWith(
+        connectingTo: null,
+        connectWindowOpen: true,
+        scanMessage: 'Connection failed: $e',
+      );
     }
   }
 
   Future<void> disconnectDevice() async {
+    _scanEnabled = false;
     await disconnect();
     await _settings.setLastDeviceId('');
   }
 
-  Future<void> openConnectWindowAndScan() async {
-    state = state.copyWith(connectWindowOpen: true, scanning: true,
-        scanMessage: 'Requesting BLE permissions…');
+  /// Disconnect without clearing [lastDeviceId] — called when the app is
+  /// closing (e.g. close button on Linux).  On the next launch the saved
+  /// device ID will trigger an autoconnect attempt.
+  Future<void> disconnectOnClose() async {
+    if (!state.status.connected) return;
+    state = state.copyWith(disconnecting: true);
     try {
-      if (!await requestBlePermissions()) {
-        state = state.copyWith(scanning: false,
-            scanMessage: 'BLE permissions not granted');
-        return;
-      }
-      state = state.copyWith(scanMessage: 'Scanning…');
-      final devices = await scan(timeoutSecs: BigInt.from(15));
-      state = state.copyWith(devices: devices, scanning: false,
-          scanMessage: 'Found ${devices.length} device(s)');
-    } catch (e) {
-      state = state.copyWith(scanning: false, scanMessage: 'Scan error: $e');
-    }
+      await disconnect().timeout(const Duration(seconds: 4));
+    } catch (_) {}
+  }
+
+  Future<void> openConnectWindowAndScan() async {
+    _scanEnabled = false;
+    _startContinuousScan();
   }
 
   void toggleSidebar() =>
@@ -161,13 +258,23 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
     _settings.setLastView(view);
   }
 
-  void toggleConnectWindow() =>
-      state = state.copyWith(connectWindowOpen: !state.connectWindowOpen);
+  void toggleConnectWindow() {
+    if (state.connectWindowOpen) {
+      _scanEnabled = false;
+      state = state.copyWith(
+        connectWindowOpen: false,
+        scanning: false,
+        scanMessage: null,
+      );
+    } else {
+      _startContinuousScan();
+    }
+  }
 
   @override
   void dispose() {
+    _scanEnabled = false;
     _eventSub?.cancel();
-    _autoconnectTimer?.cancel();
     super.dispose();
   }
 }
@@ -184,6 +291,8 @@ class AppUiState {
     required this.batteryLevel,
     required this.telemetry,
     this.scanMessage,
+    this.connectingTo,
+    this.disconnecting = false,
   });
 
   final ConnectionStatus status;
@@ -195,6 +304,10 @@ class AppUiState {
   final double batteryLevel;
   final TelemetrySnapshot telemetry;
   final String? scanMessage;
+  final String? connectingTo;
+  final bool disconnecting;
+
+  static const _sentinel = Object();
 
   AppUiState copyWith({
     ConnectionStatus? status,
@@ -205,7 +318,9 @@ class AppUiState {
     List<DeviceInfo>? devices,
     double? batteryLevel,
     TelemetrySnapshot? telemetry,
-    String? scanMessage,
+    Object? scanMessage = _sentinel,
+    Object? connectingTo = _sentinel,
+    bool? disconnecting,
   }) =>
       AppUiState(
         status: status ?? this.status,
@@ -216,7 +331,15 @@ class AppUiState {
         devices: devices ?? this.devices,
         batteryLevel: batteryLevel ?? this.batteryLevel,
         telemetry: telemetry ?? this.telemetry,
-        scanMessage: scanMessage ?? this.scanMessage,
+        scanMessage: switch (scanMessage) {
+          Object() when identical(scanMessage, _sentinel) => this.scanMessage,
+          _ => scanMessage as String?,
+        },
+        connectingTo: switch (connectingTo) {
+          Object() when identical(connectingTo, _sentinel) => this.connectingTo,
+          _ => connectingTo as String?,
+        },
+        disconnecting: disconnecting ?? this.disconnecting,
       );
 }
 

@@ -38,29 +38,36 @@ class ConnectWindow extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 12),
-            if (state.scanning)
-              const Row(
-                children: [
-                  SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  SizedBox(width: 12),
-                  Text('Scanning for devices…'),
-                ],
-              )
-            else if (state.devices.isEmpty)
+            if (state.devices.isEmpty && !state.scanning)
               const Text('No Muse devices found. Make sure the headset is on.')
-            else
+            else ...[
               ...state.devices.map(
                 (d) => ListTile(
                   leading: const Icon(Icons.bluetooth),
                   title: Text(d.name),
                   subtitle: Text(d.id),
-                  onTap: () => notifier.connectTo(d),
+                  enabled: state.connectingTo == null,
+                  onTap: state.connectingTo != null
+                      ? null
+                      : () => notifier.connectTo(d),
                 ),
               ),
+              if (state.scanning)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text('Scanning…'),
+                    ],
+                  ),
+                ),
+            ],
             if (state.scanMessage != null) ...[
               const SizedBox(height: 12),
               Text(
