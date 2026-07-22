@@ -135,15 +135,15 @@ class _EegChartPainter extends CustomPainter {
   final double visibleStart;
   final double visibleEnd;
 
-  late final Size _size;
-  late final Rect _chartRect;
-  late final double _xScale;
-  late final double _yMin;
-  late final double _yMax;
-  late final double _niceMin;
-  late final double _niceMax;
-  late final double _yRange;
-  late final double _yScale;
+  late Size _size;
+  late Rect _chartRect;
+  late double _xScale;
+  late double _yMin;
+  late double _yMax;
+  late double _niceMin;
+  late double _niceMax;
+  late double _yRange;
+  late double _yScale;
 
   @override
   void paint(Canvas canvas, Size size) {
