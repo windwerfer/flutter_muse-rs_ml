@@ -40,22 +40,27 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
   bool _scanEnabled = false;
 
   Future<void> _init() async {
-    final stream = subscribeEvents();
-    _eventSub = stream.listen(_onEvent);
+    try {
+      final stream = subscribeEvents();
+      _eventSub = stream.listen(_onEvent);
 
-    final status = await getStatus();
-    if (status.connected) {
-      state = state.copyWith(status: status);
-      return;
+      final status = await getStatus();
+      if (status.connected) {
+        state = state.copyWith(status: status);
+        return;
+      }
+
+      final lastId = _settings.lastDeviceId;
+      if (lastId != null && lastId.isNotEmpty) {
+        final found = await _tryAutoconnect(lastId);
+        if (found) return;
+      }
+
+      _startContinuousScan();
+    } catch (e) {
+      debugPrint('[muse] init error: $e');
+      state = state.copyWith(scanMessage: 'Init error: $e');
     }
-
-    final lastId = _settings.lastDeviceId;
-    if (lastId != null && lastId.isNotEmpty) {
-      final found = await _tryAutoconnect(lastId);
-      if (found) return;
-    }
-
-    _startContinuousScan();
   }
 
   /// Scan in short chunks looking for [lastId].  Returns `true` and connects
@@ -186,6 +191,7 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
           connectingTo: null,
           scanning: false,
           scanMessage: null,
+          disconnecting: false,
         );
         _startContinuousScan();
       case MuseEventDto_Telemetry():

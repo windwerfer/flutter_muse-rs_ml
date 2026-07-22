@@ -320,7 +320,18 @@ fn spawn_event_forwarder() {
         guard.connection_epoch
     };
     tokio::spawn(async move {
-        let mut counts = [0u64; 8]; // eeg, ppg, telemetry, accel, gyro, control, connected, other
+        #[derive(Default)]
+        struct PktCounts {
+            eeg: u64,
+            ppg: u64,
+            telemetry: u64,
+            accelerometer: u64,
+            gyroscope: u64,
+            control: u64,
+            connected: u64,
+            other: u64,
+        }
+        let mut counts = PktCounts::default();
         let mut last_print = tokio::time::Instant::now();
         loop {
             let rx = {
@@ -333,22 +344,22 @@ fn spawn_event_forwarder() {
             };
             while let Some(ev) = rx.recv().await {
                 match &ev {
-                    MuseEvent::Eeg(_) => counts[0] += 1,
-                    MuseEvent::Ppg(_) => counts[1] += 1,
-                    MuseEvent::Telemetry(_) => counts[2] += 1,
-                    MuseEvent::Accelerometer(_) => counts[3] += 1,
-                    MuseEvent::Gyroscope(_) => counts[4] += 1,
-                    MuseEvent::Control(_) => counts[5] += 1,
-                    MuseEvent::Connected(_) => counts[6] += 1,
-                    _ => counts[7] += 1,
+                    MuseEvent::Eeg(_) => counts.eeg += 1,
+                    MuseEvent::Ppg(_) => counts.ppg += 1,
+                    MuseEvent::Telemetry(_) => counts.telemetry += 1,
+                    MuseEvent::Accelerometer(_) => counts.accelerometer += 1,
+                    MuseEvent::Gyroscope(_) => counts.gyroscope += 1,
+                    MuseEvent::Control(_) => counts.control += 1,
+                    MuseEvent::Connected(_) => counts.connected += 1,
+                    _ => counts.other += 1,
                 }
                 if last_print.elapsed() >= std::time::Duration::from_secs(1) {
                     log::info!(
                         "[muse] pkt/s: eeg={} ppg={} telem={} accel={} gyro={} ctrl={} conn={} other={}",
-                        counts[0], counts[1], counts[2], counts[3],
-                        counts[4], counts[5], counts[6], counts[7],
+                        counts.eeg, counts.ppg, counts.telemetry, counts.accelerometer,
+                        counts.gyroscope, counts.control, counts.connected, counts.other,
                     );
-                    counts = [0; 8];
+                    counts = PktCounts::default();
                     last_print = tokio::time::Instant::now();
                 }
                 let dto = map_event(ev);
