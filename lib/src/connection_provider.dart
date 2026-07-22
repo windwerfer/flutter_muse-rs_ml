@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:muse_ml/src/app.dart';
 import 'package:muse_ml/src/rust/api/muse.dart';
 import 'package:muse_ml/src/settings.dart';
+import 'package:muse_ml/src/charts/eeg_data_buffer.dart';
 
 /// Duration of each scan chunk when scanning continuously.
 const _scanChunkSecs = 3;
@@ -38,11 +39,19 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
   final Settings _settings;
   StreamSubscription<MuseEventDto>? _eventSub;
   bool _scanEnabled = false;
+  final StreamController<MuseEventDto> _eventController =
+      StreamController<MuseEventDto>.broadcast();
+  final EegDataBuffer eegBuffer = EegDataBuffer();
+
+  Stream<MuseEventDto> get eventStream => _eventController.stream;
 
   Future<void> _init() async {
     try {
       final stream = subscribeEvents();
-      _eventSub = stream.listen(_onEvent);
+      _eventSub = stream.listen((event) {
+        _eventController.add(event);
+        _onEvent(event);
+      });
 
       final status = await getStatus();
       if (status.connected) {
@@ -194,6 +203,8 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
           disconnecting: false,
         );
         _startContinuousScan();
+      case MuseEventDto_Eeg():
+        eegBuffer.append(event.field0);
       case MuseEventDto_Telemetry():
         state = state.copyWith(
           telemetry: event.field0,
@@ -281,6 +292,7 @@ class AppStateNotifier extends StateNotifier<AppUiState> {
   void dispose() {
     _scanEnabled = false;
     _eventSub?.cancel();
+    _eventController.close();
     super.dispose();
   }
 }

@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:muse_ml/src/charts/eeg_chart.dart';
+import 'package:muse_ml/src/connection_provider.dart';
 
-/// Raw EEG view (placeholder for phase 1): will later render live EEG traces
-/// from the connected headset.
-class RawEegView extends StatelessWidget {
+class RawEegView extends ConsumerWidget {
   const RawEegView({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Text('Raw EEG view\n(live EEG traces will be shown here)'),
-    );
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(appStateProvider.notifier);
+    return EegChartWidget(buffer: notifier.eegBuffer);
   }
 }
