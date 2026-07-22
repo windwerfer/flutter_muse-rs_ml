@@ -173,7 +173,7 @@ pub async fn scan(timeout_secs: Option<u64>) -> anyhow::Result<Vec<DeviceInfo>> 
     {
         let mut guard = state().inner.lock().unwrap();
         for d in devices {
-            guard.devices.entry(d.id.clone()).or_insert(d);
+            guard.devices.insert(d.id.clone(), d);
         }
     }
 
