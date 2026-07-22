@@ -14,6 +14,8 @@ jni = "=0.19"
 tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "macros", "time"] }
 anyhow = "1"
 log = "0.4"
+env_logger = "0.11"
+android_logger = "0.14"
 
 # Both rust_lib_muse_ml and muse-rs depend on btleplug from
 # eugenehp/btleplug.git. The [patch] below replaces ALL occurrences
@@ -24,6 +26,8 @@ btleplug = { git = "https://github.com/windwerfer/btleplug.git", tag = "0.12.0-m
 
 # For local btleplug development, swap the patch above to a local path:
 # btleplug = { path = "../../btleplug" }
+
+
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "macros", "time", "net", "process"] }

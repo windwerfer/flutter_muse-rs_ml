@@ -28,6 +28,10 @@ pub struct ManagerState {
     pub events: Option<mpsc::Receiver<MuseEvent>>,
     /// Whether the event-forwarding task is already running.
     pub forwarder_running: bool,
+    /// Monotonically increasing counter, bumped on each new connection.
+    /// The event forwarder uses this to avoid clearing state that belongs
+    /// to a newer connection when its own receiver ends.
+    pub connection_epoch: u64,
 }
 
 #[derive(Default)]

@@ -109,6 +109,21 @@ pub enum MuseEventDto {
 #[frb(init)]
 pub fn init_app() {
     flutter_rust_bridge::setup_default_user_utils();
+    #[cfg(target_os = "android")]
+    {
+        android_logger::init_once(
+            android_logger::Config::default()
+                .with_max_level(log::LevelFilter::Debug)
+                .with_tag("muse_ml"),
+        );
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        env_logger::Builder::from_env(
+            env_logger::Env::default().default_filter_or("info"),
+        )
+        .init();
+    }
 }
 
 /// Called from Kotlin `MainActivity.onCreate` with the JNI environment so that
@@ -132,8 +147,9 @@ pub extern "C" fn Java_com_example_muse_1ml_MainActivity_museAndroidInit(
 }
 
 /// Scan for nearby Muse devices for `timeout_secs` seconds and return what was
-/// found. Results are cached on the Rust side so `connect` can resolve the id
-/// back to a live peripheral.
+/// found. Results are **merged** into the existing device cache so that the UI
+/// can call `scan` repeatedly in short chunks without losing previously
+/// discovered peripherals (which `connect` needs via `MuseDevice`).
 pub async fn scan(timeout_secs: Option<u64>) -> anyhow::Result<Vec<DeviceInfo>> {
     let timeout = timeout_secs.unwrap_or(15);
     let client = MuseClient::new(MuseClientConfig {
@@ -146,21 +162,19 @@ pub async fn scan(timeout_secs: Option<u64>) -> anyhow::Result<Vec<DeviceInfo>> 
         e
     })?;
 
-    let mut map = std::collections::HashMap::new();
     let infos: Vec<DeviceInfo> = devices
         .iter()
-        .map(|d| {
-            map.insert(d.id.clone(), d.clone());
-            DeviceInfo {
-                name: d.name.clone(),
-                id: d.id.clone(),
-            }
+        .map(|d| DeviceInfo {
+            name: d.name.clone(),
+            id: d.id.clone(),
         })
         .collect();
 
     {
         let mut guard = state().inner.lock().unwrap();
-        guard.devices = map;
+        for d in devices {
+            guard.devices.entry(d.id.clone()).or_insert(d);
+        }
     }
 
     Ok(infos)
@@ -168,59 +182,87 @@ pub async fn scan(timeout_secs: Option<u64>) -> anyhow::Result<Vec<DeviceInfo>> 
 
 /// Connect to a previously discovered device by its BLE id and begin streaming.
 /// Returns the connection status on success.
+///
+/// The entire operation is guarded by an overall timeout so the caller never
+/// waits more than ≈18 s.  Inside, each BLE step already has its own shorter
+/// timeout (10 s connect, 15 s discover services, 8 s startup commands).
 pub async fn connect(device_id: String) -> anyhow::Result<ConnectionStatus> {
+    // Tear down any existing connection first so the BLE link is released
+    // before we attempt a new one.  Without this the device may still think
+    // it is connected and reject (or ignore) the new connection attempt.
+    {
+        let old = state().inner.lock().unwrap().active.take();
+        if let Some(old) = old {
+            let _ = old.handle.disconnect().await;
+        }
+    }
+
     let device = {
         let guard = state().inner.lock().unwrap();
-        guard
-            .devices
-            .get(&device_id)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("Device {device_id} not found; scan first"))?
+        guard.devices.get(&device_id).cloned().ok_or_else(|| {
+            anyhow::anyhow!("Device {device_id} not found; scan first")
+        })?
     };
 
     let name = device.name.clone();
     let client = MuseClient::new(MuseClientConfig::default());
 
-    let (rx, handle) = client.connect_to(device).await?;
-    let firmware = if handle.is_athena {
-        "Athena"
-    } else {
-        "Classic"
-    }
-    .to_string();
+    tokio::time::timeout(std::time::Duration::from_secs(18), async {
+        let (rx, handle) = client.connect_to(device).await?;
+        let firmware = if handle.is_athena {
+            "Athena"
+        } else {
+            "Classic"
+        }
+        .to_string();
 
-    // Start streaming. Errors here are non-fatal for the connection itself.
-    let _ = handle.start(false, false).await;
+        // Start streaming — best-effort with its own timeout.  The BLE link
+        // from connect_to() is already established, so a timeout here still
+        // leaves a usable (but silent) connection.
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(8),
+            handle.start(false, false),
+        )
+        .await;
 
-    {
-        let mut guard = state().inner.lock().unwrap();
-        guard.active = Some(ActiveConnection {
-            handle,
-            name: name.clone(),
-            id: device_id.clone(),
-            firmware: firmware.clone(),
-        });
-        guard.events = Some(rx);
-    }
+        {
+            let mut guard = state().inner.lock().unwrap();
+            guard.connection_epoch += 1;
+            guard.active = Some(ActiveConnection {
+                handle,
+                name: name.clone(),
+                id: device_id.clone(),
+                firmware: firmware.clone(),
+            });
+            guard.events = Some(rx);
+        }
 
-    spawn_event_forwarder();
+        spawn_event_forwarder();
 
-    Ok(ConnectionStatus {
-        connected: true,
-        name,
-        id: device_id,
-        firmware,
+        Ok(ConnectionStatus {
+            connected: true,
+            name,
+            id: device_id,
+            firmware,
+        })
     })
+    .await
+    .map_err(|_| anyhow::anyhow!("connect timed out after 18 s"))?
 }
 
 /// Disconnect from the active device, if any.
+///
+/// Takes the active connection but does NOT drop `guard.events`, so the event
+/// receiver stays alive.  The disconnect watcher inside muse-rs will fire
+/// `MuseEvent::Disconnected` through the channel, the event forwarder will
+/// deliver it to Dart, and the forwarder loop will clean up `guard.events`
+/// (and set `forwarder_running = false`) when the channel ends naturally.
 pub async fn disconnect() -> anyhow::Result<()> {
-    let handle = {
+    let conn = {
         let mut guard = state().inner.lock().unwrap();
-        guard.events = None;
         guard.active.take()
     };
-    if let Some(conn) = handle {
+    if let Some(conn) = conn {
         let _ = conn.handle.disconnect().await;
     }
     Ok(())
@@ -258,14 +300,17 @@ pub fn subscribe_events(sink: StreamSink<MuseEventDto>) {
 }
 
 fn spawn_event_forwarder() {
-    {
+    let epoch = {
         let mut guard = state().inner.lock().unwrap();
         if guard.forwarder_running {
             return;
         }
         guard.forwarder_running = true;
-    }
-    tokio::spawn(async {
+        guard.connection_epoch
+    };
+    tokio::spawn(async move {
+        let mut counts = [0u64; 8]; // eeg, ppg, telemetry, accel, gyro, control, connected, other
+        let mut last_print = tokio::time::Instant::now();
         loop {
             let rx = {
                 let mut guard = state().inner.lock().unwrap();
@@ -276,6 +321,25 @@ fn spawn_event_forwarder() {
                 continue;
             };
             while let Some(ev) = rx.recv().await {
+                match &ev {
+                    MuseEvent::Eeg(_) => counts[0] += 1,
+                    MuseEvent::Ppg(_) => counts[1] += 1,
+                    MuseEvent::Telemetry(_) => counts[2] += 1,
+                    MuseEvent::Accelerometer(_) => counts[3] += 1,
+                    MuseEvent::Gyroscope(_) => counts[4] += 1,
+                    MuseEvent::Control(_) => counts[5] += 1,
+                    MuseEvent::Connected(_) => counts[6] += 1,
+                    _ => counts[7] += 1,
+                }
+                if last_print.elapsed() >= std::time::Duration::from_secs(1) {
+                    log::info!(
+                        "[muse] pkt/s: eeg={} ppg={} telem={} accel={} gyro={} ctrl={} conn={} other={}",
+                        counts[0], counts[1], counts[2], counts[3],
+                        counts[4], counts[5], counts[6], counts[7],
+                    );
+                    counts = [0; 8];
+                    last_print = tokio::time::Instant::now();
+                }
                 let dto = map_event(ev);
                 let should_stop = {
                     let mut guard = state().inner.lock().unwrap();
@@ -295,11 +359,16 @@ fn spawn_event_forwarder() {
                     break;
                 }
             }
-            // Receiver ended (device disconnected). Clear active state.
+            // Receiver ended (device disconnected).  Only clear active state
+            // if no newer connection has been established since this forwarder
+            // was spawned — otherwise we would tear down the new connection's
+            // handle without calling disconnect(), leaving a stale BLE link.
             {
                 let mut guard = state().inner.lock().unwrap();
-                guard.active = None;
-                guard.events = None;
+                if guard.connection_epoch == epoch {
+                    guard.active = None;
+                    guard.events = None;
+                }
                 guard.forwarder_running = false;
             }
         }
