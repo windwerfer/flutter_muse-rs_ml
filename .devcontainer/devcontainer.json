@@ -5,10 +5,22 @@
         // "options": ["-t", "thomas/tts_th:latest"],
     },
     "mounts": [
+        // {
+        //     "type": "bind",
+        //     "source": "${localWorkspaceFolder}/../worktrees",
+        //     "target": "/workspaces/worktrees",
+        //     "consistency":"cached",
+        // },
+        // {
+        //     "type": "bind",
+        //     "source": "${localWorkspaceFolder}/../third_party",
+        //     "target": "/workspaces/third_party",
+        //     "consistency":"cached",
+        // },
         {
             "type": "volume",
             "source": "flutter_muse_ml_uv_cache",
-            "target": "/home/vscode/.cache/uv"
+            "target": "/home/vscode/.cache/uv",
         },
         {
             "type": "volume",
