@@ -20,7 +20,7 @@ set -euo pipefail
 # =====================
 # Configuration
 # =====================
-DEFAULT_BACKUP_DIR="/opt/backups/flet_brainflow/"
+DEFAULT_BACKUP_DIR="/opt/backups/flutter_muse_ml/"
 
 # =====================
 # Helper Functions
