@@ -1,0 +1,4 @@
+[submodule "third_party/btleplug"]
+	path = third_party/btleplug
+	url = https://github.com/windwerfer/btleplug
+	ignore = all
